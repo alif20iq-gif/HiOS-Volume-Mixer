@@ -10,25 +10,28 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import java.util.concurrent.Executors
 
 class AudioMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    // A single worker prevents overlapping dumpsys calls and unbounded thread creation.
+    private val worker = Executors.newSingleThreadExecutor()
     private val tick = object : Runnable {
         override fun run() {
-            Thread {
+            worker.execute {
                 val dump = AudioSessionDetector.readDump()
                 val sessions = AudioSessionDetector.parseActiveSessions(dump, packageManager)
                 val display = if (sessions.isEmpty()) "Belum ada aplikasi yang terdeteksi mengeluarkan audio."
                 else sessions.joinToString("\n\n") { "• ${it.packageName}\n  ${it.state}" }
                 val access = when {
                     dump.isBlank() -> "Tidak dapat membaca status audio. Periksa izin Shizuku/root."
-                    else -> "Pemantauan aktif • prioritas sesi audio foreground & background"
+                    else -> "Pemantauan aktif • memeriksa sesi audio foreground & background"
                 }
                 getSharedPreferences("monitor", MODE_PRIVATE).edit()
                     .putString("status", access)
                     .putString("sessions", display)
                     .apply()
-            }.start()
+            }
             handler.postDelayed(this, 2500)
         }
     }
@@ -53,6 +56,7 @@ class AudioMonitorService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(tick)
+        worker.shutdownNow()
         getSharedPreferences("monitor", MODE_PRIVATE).edit()
             .putString("status", "Pemantauan dihentikan")
             .apply()
