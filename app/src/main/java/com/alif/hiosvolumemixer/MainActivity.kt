@@ -17,6 +17,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import rikka.shizuku.Shizuku
 import java.util.concurrent.Executors
 
@@ -40,6 +41,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
@@ -315,7 +317,11 @@ class MainActivity : Activity() {
         worker.execute {
             val result = AudioSessionDetector.setPackageVolume(this, pkg, value)
             runOnUiThread {
-                status.text = if (result.startsWith("matched=")) "Pengaturan $pkg: $result" else result
+                status.text = when {
+                    result.contains("applied=0") -> "Volume $pkg belum diterapkan ke sesi audio. Detail: $result"
+                    result.contains("applied=") -> "Volume aplikasi diterapkan: $result"
+                    else -> result
+                }
             }
         }
     }
