@@ -14,21 +14,27 @@ import java.util.concurrent.Executors
 
 class AudioMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
-    // A single worker prevents overlapping dumpsys calls and unbounded thread creation.
     private val worker = Executors.newSingleThreadExecutor()
     private val tick = object : Runnable {
         override fun run() {
             worker.execute {
-                val dump = AudioSessionDetector.readDump(applicationContext)
-                val sessions = AudioSessionDetector.parseActiveSessions(dump, packageManager)
-                val display = if (sessions.isEmpty()) "Belum ada aplikasi yang terdeteksi mengeluarkan audio."
-                else sessions.joinToString("\n\n") { "• ${it.packageName}\n  ${it.state}" }
-                val access = when {
-                    dump.isBlank() -> "Tidak dapat membaca status audio. Periksa izin Shizuku/root."
-                    else -> "Pemantauan aktif • memeriksa sesi audio foreground & background"
+                val prefs = getSharedPreferences("mixer", MODE_PRIVATE)
+                val selected = prefs.getStringSet("selected_apps", emptySet()).orEmpty()
+                val active = AudioSessionDetector.getActivePackages(applicationContext)
+                selected.intersect(active.toSet()).forEach { pkg ->
+                    val volume = prefs.getInt("volume_$pkg", 100).coerceIn(0, 100) / 100f
+                    AudioSessionDetector.setPackageVolume(applicationContext, pkg, volume)
+                }
+                val display = if (active.isEmpty()) "Belum ada aplikasi aktif mengeluarkan audio."
+                    else active.joinToString("\n")
+                val status = when {
+                    !android.os.SystemClock.elapsedRealtime().let { true } -> "Menunggu"
+                    selected.isEmpty() -> "Pilih aplikasi terlebih dahulu."
+                    active.isEmpty() -> "Mixer aktif • menunggu sesi audio"
+                    else -> "Mixer aktif • ${active.size} aplikasi memakai audio"
                 }
                 getSharedPreferences("monitor", MODE_PRIVATE).edit()
-                    .putString("status", access)
+                    .putString("status", status)
                     .putString("sessions", display)
                     .apply()
             }
@@ -46,7 +52,7 @@ class AudioMonitorService : Service() {
         }
         val notification: Notification = NotificationCompat.Builder(this, "audio_monitor")
             .setContentTitle("HiOS Volume Mixer")
-            .setContentText("Memantau aplikasi yang mengeluarkan audio")
+            .setContentText("Menerapkan volume independen aplikasi")
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .setOngoing(true)
             .build()
