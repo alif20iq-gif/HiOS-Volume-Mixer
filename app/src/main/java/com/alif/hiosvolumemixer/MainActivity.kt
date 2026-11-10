@@ -131,15 +131,19 @@ class MainActivity : Activity() {
     private fun showSettings() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(8))
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setBackgroundColor(0xFFF7F7FA.toInt())
         }
         fun addSetting(title: String, key: String, min: Int, max: Int, suffix: String, default: Int) {
             val label = TextView(this).apply {
                 textSize = 14f
-                setTextColor(0xFF292631.toInt())
+                setTextColor(0xFF20212A.toInt())
+                setPadding(0, dp(10), 0, dp(2))
             }
             panel.addView(label)
             val seek = SeekBar(this).apply {
+                progressTintList = android.content.res.ColorStateList.valueOf(0xFF4F68B5.toInt())
+                thumbTintList = android.content.res.ColorStateList.valueOf(0xFF4F68B5.toInt())
                 this.max = max - min
                 progress = (prefs.getInt(key, default).coerceIn(min, max) - min)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -162,8 +166,8 @@ class MainActivity : Activity() {
         panel.addView(TextView(this).apply {
             text = "Warna aksen"
             textSize = 14f
-            setTextColor(0xFF292631.toInt())
-            setPadding(0, dp(12), 0, dp(4))
+            setTextColor(0xFF20212A.toInt())
+            setPadding(0, dp(16), 0, dp(6))
         })
         val colors = listOf(
             "Ungu" to 0xFF705BBE.toInt(),
@@ -176,6 +180,8 @@ class MainActivity : Activity() {
             val button = Button(this).apply {
                 text = name
                 isAllCaps = false
+                setTextColor(0xFFFFFFFF.toInt())
+                backgroundTintList = android.content.res.ColorStateList.valueOf(color)
                 setOnClickListener { prefs.edit().putInt("accent_color", color).apply() }
             }
             colorRow.addView(button, LinearLayout.LayoutParams(0, dp(46), 1f))
@@ -183,7 +189,10 @@ class MainActivity : Activity() {
         panel.addView(colorRow)
         AlertDialog.Builder(this, R.style.Theme_HiOSVolumeMixer_SettingsDialog)
             .setTitle("Pengaturan")
-            .setView(ScrollView(this).apply { addView(panel) })
+            .setView(ScrollView(this).apply {
+                setBackgroundColor(0xFFF7F7FA.toInt())
+                addView(panel)
+            })
             .setPositiveButton("Selesai", null)
             .show()
     }
