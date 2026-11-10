@@ -64,7 +64,8 @@ class ShellUserService : IShellService.Stub() {
             try {
                 // PlayerProxy is the framework-supported remote wrapper around IPlayer.
                 val proxyMethod = config.javaClass.getDeclaredMethod("getPlayerProxy").apply { isAccessible = true }
-                val proxy = proxyMethod.invoke(config) ?: run {
+                val proxy = proxyMethod.invoke(config)
+                if (proxy == null) {
                     failures.add("no-player-proxy")
                     continue
                 }
