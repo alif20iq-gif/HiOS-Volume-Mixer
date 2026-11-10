@@ -94,20 +94,66 @@ class MainActivity : Activity() {
     }
 
     private fun showAppPicker() {
-        val apps = try {
-            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { it.packageName != packageName }
-                .sortedBy { packageManager.getApplicationLabel(it).toString().lowercase() }
-        } catch (_: Exception) { emptyList() }
-        val labels = apps.map { "${packageManager.getApplicationLabel(it)}  (${it.packageName})" }.toTypedArray()
+        if (!RecentApps.hasAccess(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("Akses penggunaan diperlukan")
+                .setMessage("Izinkan Akses penggunaan agar mixer hanya menampilkan aplikasi terbaru, bukan seluruh paket sistem.")
+                .setPositiveButton("Buka pengaturan") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                }
+                .setNegativeButton("Batal", null)
+                .show()
+            return
+        }
+
+        val apps = RecentApps.query(this)
         val current = selected()
-        val checked = BooleanArray(apps.size) { apps[it].packageName in current }
-        AlertDialog.Builder(this)
-            .setTitle("Pilih aplikasi untuk mixer")
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                val pkg = apps[which].packageName
-                if (isChecked) current.add(pkg) else current.remove(pkg)
+        if (apps.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Belum ada aplikasi terbaru")
+                .setMessage("Buka aplikasi yang ingin dikontrol terlebih dahulu, lalu kembali ke mixer.")
+                .setPositiveButton("Mengerti", null)
+                .show()
+            return
+        }
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20, 8, 20, 8)
+        }
+        val scroll = ScrollView(this)
+        apps.forEach { app ->
+            val pkg = app.packageName
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 10, 0, 10)
             }
+            row.addView(android.widget.ImageView(this).apply {
+                setImageDrawable(packageManager.getApplicationIcon(app))
+            }, LinearLayout.LayoutParams(42, 42))
+            val label = TextView(this).apply {
+                text = packageManager.getApplicationLabel(app).toString()
+                textSize = 16f
+                setPadding(14, 0, 8, 0)
+                setTextColor(0xFF202124.toInt())
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, -2, 1f))
+            val check = android.widget.CheckBox(this).apply {
+                isChecked = pkg in current
+                buttonTintList = android.content.res.ColorStateList.valueOf(0xFF6750A4.toInt())
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) current.add(pkg) else current.remove(pkg)
+                }
+            }
+            row.addView(check)
+            row.setOnClickListener { check.isChecked = !check.isChecked }
+            list.addView(row)
+        }
+        scroll.addView(list)
+        AlertDialog.Builder(this)
+            .setTitle("Aplikasi terbaru")
+            .setView(scroll)
             .setPositiveButton("Simpan") { _, _ ->
                 prefs.edit().putStringSet("selected_apps", current).apply()
                 renderSelectedApps()
