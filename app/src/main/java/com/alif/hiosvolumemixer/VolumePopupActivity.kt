@@ -70,18 +70,21 @@ class VolumePopupActivity : Activity() {
                     textSize = 14f
                     setTextColor(0xFF202124.toInt())
                 }
+                var selectedVolume = current
                 val slider = SeekBar(this).apply {
                     max = 100
                     progress = current
                     setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) {
+                            selectedVolume = value
                             heading.text = "$label • $value%"
                             if (fromUser) prefs.edit().putInt(key, value).apply()
                         }
                         override fun onStartTrackingTouch(s: SeekBar?) {}
                         override fun onStopTrackingTouch(s: SeekBar?) {
+                            val finalVolume = selectedVolume / 100f
                             worker.execute {
-                                AudioSessionDetector.setPackageVolume(this@VolumePopupActivity, pkg, progress / 100f)
+                                AudioSessionDetector.setPackageVolume(this@VolumePopupActivity, pkg, finalVolume)
                             }
                         }
                     })
