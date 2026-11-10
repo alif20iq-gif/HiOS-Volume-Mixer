@@ -114,6 +114,13 @@ class MainActivity : Activity() {
             ContextCompat.startForegroundService(this, Intent(this, AudioMonitorService::class.java))
             status.text = "Pemantauan audio sedang berjalan."
         }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(20) })
+        content.addView(actionButton("Buat log jalur audio") {
+            status.text = "Mengambil log audio melalui Shizuku..."
+            worker.execute {
+                val report = AudioSessionDetector.readAudioDiagnostics(this)
+                runOnUiThread { showAudioDiagnostics(report) }
+            }
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(20) })
 
         content.addView(TextView(this).apply {
             text = "Aplikasi mixer"
@@ -126,6 +133,35 @@ class MainActivity : Activity() {
         content.addView(appList)
         scroll.addView(content)
         setContentView(scroll)
+    }
+
+    private fun showAudioDiagnostics(report: String) {
+        val text = TextView(this).apply {
+            this.text = report
+            textSize = 11f
+            setTextColor(0xFF202124.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setTextIsSelectable(true)
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        val scroll = ScrollView(this).apply {
+            addView(text)
+            layoutParams = android.view.ViewGroup.LayoutParams(-1, dp(480))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Log jalur audio")
+            .setView(scroll)
+            .setPositiveButton("Salin semua log", null)
+            .setNegativeButton("Tutup", null)
+            .show()
+            .apply {
+                getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("HiOS audio diagnostic", report))
+                    status.text = "Log audio berhasil disalin. Kirimkan hasilnya di chat."
+                    dismiss()
+                }
+            }
     }
 
     private fun showSettings() {
