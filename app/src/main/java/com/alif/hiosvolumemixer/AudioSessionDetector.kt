@@ -2,6 +2,7 @@ package com.alif.hiosvolumemixer
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import rikka.shizuku.Shizuku
@@ -14,7 +15,7 @@ object AudioSessionDetector {
     @Volatile private var binding = false
     private val lock = Object()
 
-    private val connection = object : Shizuku.UserServiceConnection() {
+    private val connection = object : ServiceConnection {
         override fun onServiceConnected(componentName: ComponentName, binder: IBinder) {
             synchronized(lock) {
                 shellService = IShellService.Stub.asInterface(binder)
