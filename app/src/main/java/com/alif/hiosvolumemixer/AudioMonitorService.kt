@@ -28,7 +28,6 @@ class AudioMonitorService : Service() {
                 val display = if (active.isEmpty()) "Belum ada aplikasi aktif mengeluarkan audio."
                     else active.joinToString("\n")
                 val status = when {
-                    !android.os.SystemClock.elapsedRealtime().let { true } -> "Menunggu"
                     selected.isEmpty() -> "Pilih aplikasi terlebih dahulu."
                     active.isEmpty() -> "Mixer aktif • menunggu sesi audio"
                     else -> "Mixer aktif • ${active.size} aplikasi memakai audio"
