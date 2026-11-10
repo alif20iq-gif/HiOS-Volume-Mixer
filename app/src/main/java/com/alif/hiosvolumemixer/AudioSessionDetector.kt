@@ -23,29 +23,20 @@ object AudioSessionDetector {
             }
         }
         override fun onServiceDisconnected(componentName: ComponentName) {
-            shellService = null
+            synchronized(lock) { shellService = null }
         }
     }
 
-    fun runRootProbe(): String = try {
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-        val output = process.inputStream.bufferedReader().readText().trim()
-        val code = process.waitFor()
-        if (code == 0 && output.contains("uid=0")) "Akses root tersedia"
-        else "Akses root tidak tersedia atau ditolak"
-    } catch (_: Exception) { "Akses root tidak tersedia" }
-
-    private fun readWithShizuku(context: Context): String? {
+    private fun service(context: Context): IShellService? {
         if (!Shizuku.pingBinder() ||
             Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return null
-
         synchronized(lock) {
             if (shellService == null && !binding) {
                 binding = true
                 try {
                     val args = Shizuku.UserServiceArgs(
                         ComponentName(context, ShellUserService::class.java)
-                    ).daemon(false).processNameSuffix("audio").debuggable(false).version(1)
+                    ).daemon(false).processNameSuffix("audio").debuggable(false).version(2)
                     Shizuku.bindUserService(args, connection)
                 } catch (_: Exception) {
                     binding = false
@@ -64,39 +55,50 @@ object AudioSessionDetector {
                 }
             }
             binding = false
-            val service = shellService ?: return null
-            return try { service.execute("dumpsys audio") } catch (_: Exception) {
-                shellService = null
-                null
-            }
+            return shellService
         }
     }
 
-    fun readDump(context: Context): String {
-        readWithShizuku(context)?.let { return it }
+    fun getActivePackages(context: Context): List<String> = try {
+        service(context)?.activePackages.orEmpty().lineSequence()
+            .map { it.substringBefore('\t').trim() }
+            .filter { it.isNotBlank() }.distinct().toList()
+    } catch (_: Exception) { emptyList() }
+
+    fun setPackageVolume(context: Context, packageName: String, volume: Float): String {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys audio"))
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            val code = process.waitFor()
-            if (code == 0) output else ""
-        } catch (_: Exception) { "" }
+            service(context)?.setPackageVolume(packageName, volume)
+                ?: "Shizuku belum terhubung atau izin belum diberikan"
+        } catch (e: Exception) {
+            "Gagal menerapkan volume: ${e.message ?: "unknown"}"
+        }
+    }
+
+    fun runRootProbe(): String = try {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val code = process.waitFor()
+        if (code == 0 && output.contains("uid=0")) "Akses root tersedia"
+        else "Akses root tidak tersedia atau ditolak"
+    } catch (_: Exception) { "Akses root tidak tersedia" }
+
+    fun readDump(context: Context): String {
+        val shell = service(context) ?: return ""
+        return try { shell.execute("dumpsys audio") } catch (_: Exception) { "" }
     }
 
     fun parseActiveSessions(dump: String, packageManager: PackageManager): List<AudioAppSession> {
         val result = linkedMapOf<Int, AudioAppSession>()
-        val uidRegex = Regex("""client uid\s*[:=]\s*(\d+)""", RegexOption.IGNORE_CASE)
+        val uidRegex = Regex("""client uid\\s*[:=]\\s*(\\d+)""", RegexOption.IGNORE_CASE)
         val blocks = dump.split(Regex("""(?=AudioPlaybackConfiguration|PlaybackActivityMonitor|piid:)"""))
         for (block in blocks) {
             val uid = uidRegex.find(block)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: continue
             val lower = block.lowercase()
-            val active = lower.contains("state: started") ||
-                lower.contains("state=started") ||
-                lower.contains("isactive=true") ||
-                lower.contains("active: true")
+            val active = lower.contains("state: started") || lower.contains("state=started") ||
+                lower.contains("isactive=true") || lower.contains("active: true")
             if (!active) continue
-            val packages = try { packageManager.getPackagesForUid(uid)?.toList().orEmpty() }
-            catch (_: Exception) { emptyList() }
-            val name = packages.firstOrNull() ?: "UID $uid"
+            val name = try { packageManager.getPackagesForUid(uid)?.firstOrNull() } catch (_: Exception) { null }
+                ?: "UID $uid"
             result[uid] = AudioAppSession(uid, name, "Mengeluarkan audio")
         }
         return result.values.toList()
