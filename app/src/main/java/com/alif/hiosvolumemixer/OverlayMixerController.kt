@@ -24,7 +24,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
     private val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val audio = service.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val worker = Executors.newSingleThreadExecutor()
-    private var root: FrameLayout? = null
+    private var root: View? = null
     private val accent get() = prefs.getInt("accent_color", Color.rgb(112, 91, 190))
     private val handler = Handler(Looper.getMainLooper())
     private var systemSlider: VerticalVolumeSlider? = null
@@ -50,43 +50,40 @@ class OverlayMixerController(private val service: AccessibilityService) {
     fun show() { if (root == null) drawMixer() }
     fun destroy() { hide(); worker.shutdownNow() }
 
-    private fun attach(card: LinearLayout) {
+    pri    private fun attach(card: LinearLayout) {
         hide()
+        if (android.os.Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(service)) {
+            return
+        }
         val opacity = prefs.getInt("popup_opacity", 92).coerceIn(55, 100)
         val alpha = (opacity * 255 / 100) shl 24
         card.background = GradientDrawable().apply {
             setColor(alpha or 0x00ECECF5)
             cornerRadius = dp(24).toFloat()
-            setStroke(dp(prefs.getInt("outline_width", 1).coerceIn(0, 3)), prefs.getInt("outline_color", 0xFFB8B5C2.toInt()))
+            setStroke(
+                dp(prefs.getInt("outline_width", 1).coerceIn(0, 3)),
+                prefs.getInt("outline_color", 0xFFB8B5C2.toInt())
+            )
         }
         card.elevation = dp(18).toFloat()
-        val frame = object : FrameLayout(service) {
-            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                if (event.actionMasked == MotionEvent.ACTION_DOWN ||
-                    event.actionMasked == MotionEvent.ACTION_MOVE ||
-                    event.actionMasked == MotionEvent.ACTION_UP) resetAutoHide()
-                return super.dispatchTouchEvent(event)
-            }
-        }.apply { setBackgroundColor(Color.TRANSPARENT); isClickable = true }
-        val metrics = service.resources.displayMetrics
-        val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
-        val navId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
-        val topInset = if (statusId > 0) service.resources.getDimensionPixelSize(statusId) else dp(24)
-        val bottomInset = if (navId > 0) service.resources.getDimensionPixelSize(navId) else dp(24)
-        val availableHeight = (metrics.heightPixels - topInset - bottomInset).coerceAtLeast(dp(240))
-        frame.addView(card, FrameLayout.LayoutParams(dp(310), -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(10) })
-        frame.setOnTouchListener { _, e ->
-            if (e.actionMasked == MotionEvent.ACTION_DOWN && e.x < metrics.widthPixels - dp(320)) {
+        card.isClickable = true
+        card.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
                 hide()
                 true
             } else false
         }
-        val params = WindowManager.LayoutParams(metrics.widthPixels, availableHeight,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            android.graphics.PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.TOP or Gravity.START
-            y = topInset
+        val params = WindowManager.LayoutParams(
+            dp(310),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            x = dp(10)
             if (android.os.Build.VERSION.SDK_INT >= 31) {
                 val blur = prefs.getInt("popup_blur", 18).coerceIn(0, 60)
                 if (blur > 0) {
@@ -95,10 +92,15 @@ class OverlayMixerController(private val service: AccessibilityService) {
                 }
             }
         }
-        try { wm.addView(frame, params); root = frame; resetAutoHide() } catch (_: Exception) { root = null }
+        try {
+            wm.addView(card, params)
+            root = card as? FrameLayout
+            resetAutoHide()
+        } catch (_: Exception) {
+            root = null
+        }
     }
-
-    private fun panel() = LinearLayout(service).apply {
+ivate fun panel() = LinearLayout(service).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
     }
