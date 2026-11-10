@@ -26,5 +26,5 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("com.google.android.material:material:1.13.0")
-    implementation("rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:api:13.1.5")
 }
