@@ -13,6 +13,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.os.Handler
+import android.os.Looper
 import android.widget.*
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -23,35 +25,70 @@ class OverlayMixerController(private val service: AccessibilityService) {
     private val audio = service.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val worker = Executors.newSingleThreadExecutor()
     private var root: FrameLayout? = null
-    private val accent = Color.rgb(112, 91, 190)
+    private val accent get() = prefs.getInt("accent_color", Color.rgb(112, 91, 190))
+    private val handler = Handler(Looper.getMainLooper())
+    private var systemSlider: VerticalVolumeSlider? = null
+    private val autoHide = Runnable { hide() }
+    fun refreshSystemVolume() {
+        val maxV = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        systemSlider?.let { it.maxValue = maxV; it.value = audio.getStreamVolume(AudioManager.STREAM_MUSIC) }
+    }
+    private fun resetAutoHide() {
+        handler.removeCallbacks(autoHide)
+        val seconds = prefs.getInt("popup_timeout", 0)
+        if (seconds > 0 && root != null) handler.postDelayed(autoHide, seconds * 1000L)
+    }
     private fun dp(v: Int) = (v * service.resources.displayMetrics.density).toInt()
     private fun bg(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(24).toFloat() }
 
     fun hide() {
+        handler.removeCallbacks(autoHide)
         root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         root = null
+        systemSlider = null
     }
     fun show() { if (root == null) drawMixer() }
     fun destroy() { hide(); worker.shutdownNow() }
 
     private fun attach(card: LinearLayout) {
         hide()
-        val frame = FrameLayout(service).apply { setBackgroundColor(0x55000000); isClickable = true }
-        card.background = bg(0xEDECEFF5.toInt())
+        val opacity = prefs.getInt("popup_opacity", 92).coerceIn(55, 100)
+        val alpha = (opacity * 255 / 100) shl 24
+        card.background = GradientDrawable().apply {
+            setColor(alpha or 0x00ECECF5)
+            cornerRadius = dp(24).toFloat()
+            setStroke(dp(prefs.getInt("outline_width", 1).coerceIn(0, 3)), prefs.getInt("outline_color", 0xFFB8B5C2.toInt()))
+        }
         card.elevation = dp(18).toFloat()
+        val frame = FrameLayout(service).apply { setBackgroundColor(Color.TRANSPARENT); isClickable = true }
+        val metrics = service.resources.displayMetrics
+        val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val navId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        val topInset = if (statusId > 0) service.resources.getDimensionPixelSize(statusId) else dp(24)
+        val bottomInset = if (navId > 0) service.resources.getDimensionPixelSize(navId) else dp(24)
+        val availableHeight = (metrics.heightPixels - topInset - bottomInset).coerceAtLeast(dp(240))
         frame.addView(card, FrameLayout.LayoutParams(dp(310), -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(10) })
         frame.setOnTouchListener { _, e ->
-            if (e.action == MotionEvent.ACTION_DOWN &&
-                e.x < service.resources.displayMetrics.widthPixels - dp(320)) {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN && e.x < metrics.widthPixels - dp(320)) {
                 hide()
                 true
             } else false
         }
-        val params = WindowManager.LayoutParams(-1, -1,
+        val params = WindowManager.LayoutParams(metrics.widthPixels, availableHeight,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            android.graphics.PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
-        try { wm.addView(frame, params); root = frame } catch (_: Exception) { root = null }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            y = topInset
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val blur = prefs.getInt("popup_blur", 18).coerceIn(0, 60)
+                if (blur > 0) {
+                    flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                    blurBehindRadius = blur
+                }
+            }
+        }
+        try { wm.addView(frame, params); root = frame; resetAutoHide() } catch (_: Exception) { root = null }
     }
 
     private fun panel() = LinearLayout(service).apply {
@@ -64,11 +101,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
             text = title; textSize = 18f; setTextColor(0xFF24232A.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        addView(TextView(service).apply {
-            text = "×"; textSize = 27f; gravity = Gravity.CENTER
-            setTextColor(0xFF55515F.toInt()); setPadding(dp(8), 0, dp(4), 0)
-            setOnClickListener { hide() }
-        })
+
     }
 
     private fun drawMixer() {
@@ -87,7 +120,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
         box.addView(TextView(service).apply {
             text = "+  Tambah aplikasi"; textSize = 14f; gravity = Gravity.CENTER
             setTextColor(Color.WHITE); background = bg(accent)
-            setPadding(0, dp(11), 0, dp(11)); setOnClickListener { drawPicker() }
+            setPadding(0, dp(11), 0, dp(11)); setOnClickListener { handler.removeCallbacks(autoHide); drawPicker() }
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         attach(box)
     }
@@ -102,7 +135,9 @@ class OverlayMixerController(private val service: AccessibilityService) {
         col.addView(label)
         val slider = VerticalVolumeSlider(service).apply {
             maxValue = maxV; value = initial; tint = accent
+            if (pkg == null) systemSlider = this
             onValueChanged = { v ->
+                resetAutoHide()
                 label.text = "${v * 100 / maxV}%"
                 if (pkg == null) audio.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0)
                 else prefs.edit().putInt("volume_$pkg", v).apply()
