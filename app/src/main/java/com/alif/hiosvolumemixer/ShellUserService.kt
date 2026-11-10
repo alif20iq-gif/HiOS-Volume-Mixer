@@ -53,21 +53,29 @@ class ShellUserService : IShellService.Stub() {
 
     override fun setPackageVolume(packageName: String, volume: Float): String {
         val ctx = context() ?: return "ERROR: no context"
-        val pm = ctx.packageManager
         val normalized = volume.coerceIn(0f, 1f)
         var matched = 0
         var applied = 0
+        val failures = mutableListOf<String>()
         for (config in activeConfigurations()) {
             val uid = intField(config, "mClientUid") ?: continue
-            if (pm.getPackagesForUid(uid)?.contains(packageName) != true) continue
+            if (ctx.packageManager.getPackagesForUid(uid)?.contains(packageName) != true) continue
             matched++
-            val player = playerFor(config) ?: continue
             try {
-                player.javaClass.getMethod("setVolume", Float::class.javaPrimitiveType!!)
-                    .invoke(player, normalized)
+                // PlayerProxy is the framework-supported remote wrapper around IPlayer.
+                val proxyMethod = config.javaClass.getDeclaredMethod("getPlayerProxy").apply { isAccessible = true }
+                val proxy = proxyMethod.invoke(config) ?: run {
+                    failures.add("no-player-proxy")
+                    continue
+                }
+                proxy.javaClass.getMethod("setVolume", Float::class.javaPrimitiveType!!)
+                    .invoke(proxy, normalized)
                 applied++
-            } catch (_: Throwable) { }
+            } catch (e: Throwable) {
+                failures.add(e.cause?.javaClass?.simpleName ?: e.javaClass.simpleName)
+            }
         }
-        return "matched=$matched;applied=$applied"
+        return "matched=$matched;applied=$applied" +
+            if (failures.isEmpty()) "" else ";errors=${failures.distinct().take(3).joinToString(",")}"
     }
 }
