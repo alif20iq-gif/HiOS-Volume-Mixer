@@ -1,9 +1,5 @@
 package com.alif.hiosvolumemixer
 
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import rikka.shizuku.Shizuku
-
 class ShellUserService : IShellService.Stub() {
     override fun execute(command: String): String {
         val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
