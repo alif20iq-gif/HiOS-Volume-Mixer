@@ -12,4 +12,14 @@
         <item name="android:windowBackground">#FFF7F7FA</item>
         <item name="android:windowCloseOnTouchOutside">true</item>
     </style>
+    <style name="Theme.HiOSVolumeMixer.SettingsDialog" parent="Theme.Material3.Light.Dialog.Alert">
+        <item name="android:windowBackground">#FFF7F7FA</item>
+        <item name="android:textColorPrimary">#FF24232A</item>
+        <item name="android:textColorSecondary">#FF625E69</item>
+        <item name="colorSurface">#FFF7F7FA</item>
+        <item name="colorOnSurface">#FF24232A</item>
+        <item name="colorOnSurfaceVariant">#FF625E69</item>
+        <item name="colorPrimary">#FF4F68B5</item>
+        <item name="android:colorAccent">#FF4F68B5</item>
+    </style>
 </resources>
