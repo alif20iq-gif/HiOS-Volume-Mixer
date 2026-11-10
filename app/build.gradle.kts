@@ -11,8 +11,8 @@ android {
         applicationId = "com.alif.hiosvolumemixer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.6.0"
     }
 
     buildFeatures {
