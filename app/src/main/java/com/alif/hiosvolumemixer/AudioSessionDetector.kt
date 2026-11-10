@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import rikka.shizuku.Shizuku
 import java.util.concurrent.TimeUnit
@@ -82,9 +83,32 @@ object AudioSessionDetector {
         else "Akses root tidak tersedia atau ditolak"
     } catch (_: Exception) { "Akses root tidak tersedia" }
 
-    fun readDump(context: Context): String {
-        val shell = service(context) ?: return ""
-        return try { shell.execute("dumpsys audio") } catch (_: Exception) { "" }
+    fun readDump(context: Context): String = readAudioDiagnostics(context)
+
+    fun readAudioDiagnostics(context: Context): String {
+        val shell = service(context) ?: return "SHIZUKU_ERROR: Shizuku belum terhubung atau izin belum diberikan."
+        val commands = listOf(
+            "dumpsys audio",
+            "dumpsys media.audio_flinger",
+            "dumpsys media.audio_policy",
+            "dumpsys media_session"
+        )
+        return buildString {
+            appendLine("HiOS Volume Mixer - AUDIO DIAGNOSTIC")
+            appendLine("Waktu: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())}")
+            appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("Shizuku: connected")
+            for (command in commands) {
+                appendLine()
+                appendLine("========== $command ==========")
+                val output = try { shell.execute(command) } catch (e: Exception) {
+                    "ERROR: ${e.javaClass.simpleName}: ${e.message}"
+                }
+                appendLine(output.take(26000))
+                if (output.length > 26000) appendLine("[TRUNCATED: output melebihi 26000 karakter]")
+            }
+        }
     }
 
     fun parseActiveSessions(dump: String, packageManager: PackageManager): List<AudioAppSession> {
