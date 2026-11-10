@@ -128,8 +128,13 @@ class OverlayMixerController(private val service: AccessibilityService) {
                     val dx = (event.rawX - downRawX).toInt()
                     val dy = (event.rawY - downRawY).toInt()
                     val screen = service.resources.displayMetrics
+                    val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+                    val navId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+                    val topInset = if (statusId > 0) service.resources.getDimensionPixelSize(statusId) else dp(24)
+                    val bottomInset = if (navId > 0) service.resources.getDimensionPixelSize(navId) else dp(24)
                     params.x = (startX - dx).coerceIn(0, (screen.widthPixels - dp(80)).coerceAtLeast(0))
-                    params.y = (startY + dy).toInt().coerceIn(0, (screen.heightPixels - dp(100)).coerceAtLeast(0))
+                    val maxY = (screen.heightPixels - bottomInset - card.height).coerceAtLeast(topInset)
+                    params.y = (startY + dy).toInt().coerceIn(topInset, maxY)
                     try { wm.updateViewLayout(card, params) } catch (_: Exception) {}
                     resetAutoHide()
                     true
