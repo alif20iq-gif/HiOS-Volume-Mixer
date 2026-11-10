@@ -34,15 +34,16 @@ class ShellUserService : IShellService.Stub() {
         instance.javaClass.getDeclaredField(name).apply { isAccessible = true }.getInt(instance)
     } catch (_: Throwable) { null }
 
-    private fun playerFor(config: Any): Any? = try {
-        config.javaClass.getDeclaredMethod("getIPlayer").apply { isAccessible = true }.invoke(config)
-    } catch (_: Throwable) { null }
-
     private fun packageForConfig(config: Any, ctx: Context): String? {
-        val pid = intField(config, "mClientPid") ?: return null
-        val am = ctx.getSystemService(android.app.ActivityManager::class.java) ?: return null
-        val process = am.runningAppProcesses?.firstOrNull { it.pid == pid } ?: return null
-        return process.pkgList?.firstOrNull()
+        val uid = intField(config, "mClientUid") ?: return null
+        return ctx.packageManager.getPackagesForUid(uid)
+            ?.firstOrNull { packageName ->
+                try {
+                    val app = ctx.packageManager.getApplicationInfo(packageName, 0)
+                    (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 ||
+                        (app.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                } catch (_: Throwable) { false }
+            }
     }
 
     override fun getActivePackages(): String {
@@ -59,31 +60,23 @@ class ShellUserService : IShellService.Stub() {
     override fun setPackageVolume(packageName: String, volume: Float): String {
         val ctx = context() ?: return "ERROR: no context"
         val normalized = volume.coerceIn(0f, 1f)
+        val packages = ctx.packageManager
         var matched = 0
         var applied = 0
         val failures = mutableListOf<String>()
         for (config in activeConfigurations()) {
             val state = intField(config, "mPlayerState") ?: -1
             if (state != 2 && state != 3) continue
-            if (packageForConfig(config, ctx) != packageName) continue
+            val uid = intField(config, "mClientUid") ?: continue
+            if (packages.getPackagesForUid(uid)?.contains(packageName) != true) continue
             matched++
             try {
-                // Use the framework IPlayer interface directly, as the Android per-player
-                // volume implementation does. PlayerProxy reflection can be blocked on OEM ROMs.
-                val player = config.javaClass.getDeclaredMethod("getIPlayer").apply { isAccessible = true }.invoke(config)
-                if (player == null) {
-                    failures.add("no-player")
-                    continue
-                }
-                val setVolume = player.javaClass.methods.firstOrNull {
-                    it.name == "setVolume" && it.parameterTypes.size == 1 && it.parameterTypes[0] == java.lang.Float.TYPE
-                } ?: player.javaClass.interfaces.asSequence().flatMap { it.methods.asSequence() }
-                    .firstOrNull { it.name == "setVolume" && it.parameterTypes.size == 1 && it.parameterTypes[0] == java.lang.Float.TYPE }
-                if (setVolume == null) {
-                    failures.add("setVolume-unavailable")
-                    continue
-                }
-                setVolume.invoke(player, normalized)
+                // Use AudioPlaybackConfiguration.getPlayerProxy(), the same framework
+                // per-player API used by Android's multi-app volume implementations.
+                val proxyMethod = config.javaClass.getDeclaredMethod("getPlayerProxy").apply { isAccessible = true }
+                val proxy = proxyMethod.invoke(config) ?: throw IllegalStateException("player-proxy-null")
+                val setter = proxy.javaClass.getMethod("setVolume", java.lang.Float.TYPE)
+                setter.invoke(proxy, normalized)
                 applied++
             } catch (e: Throwable) {
                 val cause = e.cause ?: e
