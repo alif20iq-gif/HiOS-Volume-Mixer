@@ -53,8 +53,8 @@ class ShellUserService : IShellService.Stub() {
             if (state != 2 && state != 3) return@mapNotNull null
             val pkg = packageForConfig(config, ctx) ?: return@mapNotNull null
             val pid = intField(config, "mClientPid") ?: -1
-            "$pkg\\t$pid"
-        }.distinct().joinToString("\\n")
+            "$pkg\t$pid"
+        }.distinct().joinToString("\n")
     }
 
     override fun setPackageVolume(packageName: String, volume: Float): String {
