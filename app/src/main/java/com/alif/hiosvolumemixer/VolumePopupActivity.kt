@@ -35,9 +35,9 @@ class VolumePopupActivity : Activity() {
             setTextColor(0xFF202124.toInt())
         })
         val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val systemMax = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val systemSlider = SeekBar(this).apply {
-            this.max = max
+            this.max = systemMax
             progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) {
@@ -72,7 +72,7 @@ class VolumePopupActivity : Activity() {
                 }
                 var selectedVolume = current
                 val slider = SeekBar(this).apply {
-                    max = 100
+                    this.max = 100
                     progress = current
                     setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) {
