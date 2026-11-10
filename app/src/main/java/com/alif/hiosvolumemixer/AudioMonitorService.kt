@@ -19,7 +19,7 @@ class AudioMonitorService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             worker.execute {
-                val dump = AudioSessionDetector.readDump()
+                val dump = AudioSessionDetector.readDump(applicationContext)
                 val sessions = AudioSessionDetector.parseActiveSessions(dump, packageManager)
                 val display = if (sessions.isEmpty()) "Belum ada aplikasi yang terdeteksi mengeluarkan audio."
                 else sessions.joinToString("\n\n") { "• ${it.packageName}\n  ${it.state}" }
