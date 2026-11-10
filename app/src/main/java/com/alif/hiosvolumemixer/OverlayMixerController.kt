@@ -77,9 +77,14 @@ class OverlayMixerController(private val service: AccessibilityService) {
                 true
             } else false
         }
+        val screen = service.resources.displayMetrics
+        val widthPercent = prefs.getInt("popup_width_percent", 55).coerceIn(10, 75)
+        val heightPercent = prefs.getInt("popup_height_percent", 48).coerceIn(10, 75)
+        val panelWidth = (screen.widthPixels * widthPercent / 100).coerceAtLeast(dp(1))
+        val panelHeight = (screen.heightPixels * heightPercent / 100).coerceAtLeast(dp(1))
         val params = WindowManager.LayoutParams(
-            dp(310),
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            panelWidth,
+            panelHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -104,6 +109,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
             root = card
             overlayParams = params
             installDragHandle(card, params)
+            installResizeHandle(card, params)
             resetAutoHide()
         } catch (_: Exception) {
             root = null
@@ -152,6 +158,53 @@ class OverlayMixerController(private val service: AccessibilityService) {
         }
     }
 
+    private fun installResizeHandle(card: LinearLayout, params: WindowManager.LayoutParams) {
+        val handle = card.findViewWithTag<View>("popup_resize_handle") ?: return
+        var downRawX = 0f
+        var downRawY = 0f
+        var startWidth = 0
+        var startHeight = 0
+        handle.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startWidth = params.width
+                    startHeight = params.height
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downRawX).toInt()
+                    val dy = (event.rawY - downRawY).toInt()
+                    val screen = service.resources.displayMetrics
+                    val minWidth = (screen.widthPixels / 10).coerceAtLeast(dp(1))
+                    val minHeight = (screen.heightPixels / 10).coerceAtLeast(dp(1))
+                    val maxWidth = screen.widthPixels * 3 / 4
+                    val maxHeight = screen.heightPixels * 3 / 4
+                    // Gravity.END: increasing width grows toward the left while the right edge stays anchored.
+                    params.width = (startWidth - dx).coerceIn(minWidth, maxWidth)
+                    params.height = (startHeight + dy).coerceIn(minHeight, maxHeight)
+                    prefs.edit()
+                        .putInt("popup_width_percent", (params.width * 100 / screen.widthPixels).coerceIn(10, 75))
+                        .putInt("popup_height_percent", (params.height * 100 / screen.heightPixels).coerceIn(10, 75))
+                        .apply()
+                    try { wm.updateViewLayout(card, params) } catch (_: Exception) {}
+                    resetAutoHide()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val screen = service.resources.displayMetrics
+                    prefs.edit()
+                        .putInt("popup_width_percent", (params.width * 100 / screen.widthPixels).coerceIn(10, 75))
+                        .putInt("popup_height_percent", (params.height * 100 / screen.heightPixels).coerceIn(10, 75))
+                        .apply()
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
     private fun panel() = LinearLayout(service).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -174,12 +227,19 @@ class OverlayMixerController(private val service: AccessibilityService) {
             text = "Geser ke atas atau bawah untuk mengatur volume"
             textSize = 11f; setTextColor(0xFF77737F.toInt()); setPadding(0, dp(3), 0, dp(10))
         })
-        val row = LinearLayout(service).apply { gravity = Gravity.CENTER }
-        row.addView(volumeColumn(null), LinearLayout.LayoutParams(dp(76), dp(190)))
-        prefs.getStringSet("selected_apps", emptySet()).orEmpty().take(3).forEach {
-            row.addView(volumeColumn(it), LinearLayout.LayoutParams(dp(76), dp(190)))
+        val screen = service.resources.displayMetrics
+        val heightPercent = prefs.getInt("popup_height_percent", 48).coerceIn(10, 75)
+        val panelHeight = screen.heightPixels * heightPercent / 100
+        val columnsHeight = (panelHeight - dp(166)).coerceAtLeast(dp(48))
+        val row = LinearLayout(service).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.HORIZONTAL
         }
-        box.addView(row)
+        val packages = listOf<String?>(null) + prefs.getStringSet("selected_apps", emptySet()).orEmpty().take(3)
+        packages.forEach { pkg ->
+            row.addView(volumeColumn(pkg, columnsHeight), LinearLayout.LayoutParams(0, columnsHeight, 1f))
+        }
+        box.addView(row, LinearLayout.LayoutParams(-1, columnsHeight))
         mixerFeedback = TextView(service).apply {
             text = "Volume aplikasi menunggu sesi audio aktif"
             textSize = 10f
@@ -188,15 +248,26 @@ class OverlayMixerController(private val service: AccessibilityService) {
             setPadding(0, dp(4), 0, dp(2))
         }
         box.addView(mixerFeedback)
-        box.addView(TextView(service).apply {
-            text = "+  Tambah aplikasi"; textSize = 14f; gravity = Gravity.CENTER
-            setTextColor(Color.WHITE); background = bg(accent)
-            setPadding(0, dp(11), 0, dp(11)); setOnClickListener { handler.removeCallbacks(autoHide); drawPicker() }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        val footer = LinearLayout(service).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(service).apply {
+                text = "+ Aplikasi"; textSize = 12f; gravity = Gravity.CENTER
+                setTextColor(Color.WHITE); background = bg(accent)
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+                setOnClickListener { handler.removeCallbacks(autoHide); drawPicker() }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(TextView(service).apply {
+                text = "◢"; textSize = 20f; gravity = Gravity.CENTER
+                setTextColor(0xFF625E69.toInt()); tag = "popup_resize_handle"
+                setPadding(dp(8), dp(2), dp(2), dp(2))
+                contentDescription = "Ubah ukuran panel"
+            }, LinearLayout.LayoutParams(dp(34), dp(32)))
+        }
+        box.addView(footer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         attach(box)
     }
 
-    private fun volumeColumn(pkg: String?): View {
+    private fun volumeColumn(pkg: String?, columnHeight: Int): View {
         val col = LinearLayout(service).apply { orientation = 1; gravity = Gravity.CENTER; setPadding(dp(3), dp(4), dp(3), dp(2)) }
         val maxV = if (pkg == null) audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) else 100
         val initial = if (pkg == null) audio.getStreamVolume(AudioManager.STREAM_MUSIC) else prefs.getInt("volume_$pkg", 100).coerceIn(0, 100)
@@ -226,7 +297,8 @@ class OverlayMixerController(private val service: AccessibilityService) {
                 }
             }
         }
-        col.addView(slider, LinearLayout.LayoutParams(dp(48), dp(118)).apply { topMargin = dp(4); bottomMargin = dp(4) })
+        val sliderHeight = (columnHeight - dp(76)).coerceAtLeast(dp(28))
+        col.addView(slider, LinearLayout.LayoutParams(dp(48), sliderHeight).apply { topMargin = dp(3); bottomMargin = dp(3) })
         if (pkg == null) {
             col.addView(TextView(service).apply { text = "Sistem"; textSize = 11f; setTextColor(0xFF625E69.toInt()) })
         } else {
@@ -234,10 +306,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
             col.addView(ImageView(service).apply {
                 setImageDrawable(if (info != null) service.packageManager.getApplicationIcon(info) else service.getDrawable(android.R.drawable.sym_def_app_icon))
             }, LinearLayout.LayoutParams(dp(27), dp(27)))
-            col.addView(TextView(service).apply {
-                text = if (info != null) service.packageManager.getApplicationLabel(info).toString() else pkg
-                textSize = 10f; setTextColor(0xFF625E69.toInt()); gravity = Gravity.CENTER; maxLines = 1
-            })
+
         }
         return col
     }
