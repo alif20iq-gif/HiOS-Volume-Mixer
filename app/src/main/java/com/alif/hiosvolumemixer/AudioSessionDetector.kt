@@ -14,7 +14,7 @@ object AudioSessionDetector {
     @Volatile private var binding = false
     private val lock = Object()
 
-    private val connection = object : Shizuku.UserServiceConnection {
+    private val connection = object : Shizuku.UserServiceConnection() {
         override fun onServiceConnected(componentName: ComponentName, binder: IBinder) {
             synchronized(lock) {
                 shellService = IShellService.Stub.asInterface(binder)
