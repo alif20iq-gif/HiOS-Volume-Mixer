@@ -29,6 +29,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
     private val accent get() = prefs.getInt("accent_color", Color.rgb(112, 91, 190))
     private val handler = Handler(Looper.getMainLooper())
     private var systemSlider: VerticalVolumeSlider? = null
+    private var mixerFeedback: TextView? = null
     private val autoHide = Runnable { hide() }
     fun refreshSystemVolume() {
         val maxV = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
@@ -48,6 +49,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
         root = null
         overlayParams = null
         systemSlider = null
+        mixerFeedback = null
     }
     fun show() { if (root == null) drawMixer() }
     fun destroy() { hide(); worker.shutdownNow() }
@@ -178,6 +180,14 @@ class OverlayMixerController(private val service: AccessibilityService) {
             row.addView(volumeColumn(it), LinearLayout.LayoutParams(dp(76), dp(190)))
         }
         box.addView(row)
+        mixerFeedback = TextView(service).apply {
+            text = "Volume aplikasi menunggu sesi audio aktif"
+            textSize = 10f
+            setTextColor(0xFF625E69.toInt())
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(2))
+        }
+        box.addView(mixerFeedback)
         box.addView(TextView(service).apply {
             text = "+  Tambah aplikasi"; textSize = 14f; gravity = Gravity.CENTER
             setTextColor(Color.WHITE); background = bg(accent)
@@ -204,7 +214,16 @@ class OverlayMixerController(private val service: AccessibilityService) {
                 else prefs.edit().putInt("volume_$pkg", v).apply()
             }
             onFinished = { v ->
-                if (pkg != null) worker.execute { AudioSessionDetector.setPackageVolume(service, pkg, v / 100f) }
+                if (pkg != null) worker.execute {
+                    val result = AudioSessionDetector.setPackageVolume(service, pkg, v / 100f)
+                    handler.post {
+                        mixerFeedback?.text = when {
+                            result.contains("applied=0") -> "Belum diterapkan • $result"
+                            result.contains("applied=") -> "Volume aplikasi diterapkan • $result"
+                            else -> result
+                        }
+                    }
+                }
             }
         }
         col.addView(slider, LinearLayout.LayoutParams(dp(48), dp(118)).apply { topMargin = dp(4); bottomMargin = dp(4) })
