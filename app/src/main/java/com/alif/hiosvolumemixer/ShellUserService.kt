@@ -63,7 +63,7 @@ class ShellUserService : IShellService.Stub() {
             matched++
             val player = playerFor(config) ?: continue
             try {
-                player.javaClass.getMethod("setVolume", Float::class.javaPrimitiveType)
+                player.javaClass.getMethod("setVolume", Float::class.javaPrimitiveType!!)
                     .invoke(player, normalized)
                 applied++
             } catch (_: Throwable) { }
