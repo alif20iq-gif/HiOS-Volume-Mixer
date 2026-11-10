@@ -52,46 +52,71 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 28, 24, 24)
+            setPadding(dp(20), dp(26), dp(20), dp(28))
+            setBackgroundColor(0xFFF6F5F9.toInt())
         }
-        val title = TextView(this).apply {
+        content.addView(TextView(this).apply {
             text = "HiOS Volume Mixer"
-            textSize = 26f
-            setTextColor(0xFF202124.toInt())
-        }
-        status = TextView(this).apply {
-            text = "Pilih aplikasi, lalu hubungkan Shizuku."
-            textSize = 14f
-            setPadding(0, 12, 0, 16)
-        }
-        fun button(label: String, action: () -> Unit) =
-            Button(this).apply { text = label; setOnClickListener { action() } }
-
-        content.addView(title)
-        content.addView(status)
-        content.addView(button("Pilih aplikasi") { showAppPicker() })
-        content.addView(button("Hubungkan / minta izin Shizuku") {
-            if (Shizuku.pingBinder()) Shizuku.requestPermission(2001)
-            else status.text = "Shizuku belum berjalan. Aktifkan Shizuku terlebih dahulu."
-        })
-        content.addView(button("Aktifkan kontrol dari tombol volume") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-        content.addView(button("Mulai layanan pemantauan") {
-            ContextCompat.startForegroundService(this, Intent(this, AudioMonitorService::class.java))
-            status.text = "Layanan pemantauan dimulai."
+            textSize = 27f
+            setTextColor(0xFF24232A.toInt())
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         })
         content.addView(TextView(this).apply {
-            text = "Volume aplikasi pilihan"
+            text = "Atur volume setiap aplikasi secara terpisah."
+            textSize = 14f
+            setTextColor(0xFF77737F.toInt())
+            setPadding(0, dp(4), 0, dp(18))
+        })
+        status = TextView(this).apply {
+            text = "Pilih aplikasi dan hubungkan Shizuku untuk memulai."
+            textSize = 13f
+            setTextColor(0xFF55515F.toInt())
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFEAE7F1.toInt()); cornerRadius = dp(14).toFloat()
+            }
+        }
+        content.addView(status, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+
+        fun actionButton(label: String, primary: Boolean = false, action: () -> Unit) =
+            Button(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 14f
+                setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF51466F.toInt())
+                backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (primary) 0xFF705BBE.toInt() else 0xFFE9E5F2.toInt()
+                )
+                setOnClickListener { action() }
+            }
+        content.addView(actionButton("＋  Pilih aplikasi", true) { showAppPicker() },
+            LinearLayout.LayoutParams(-1, dp(50)).apply { bottomMargin = dp(8) })
+        content.addView(actionButton("Hubungkan Shizuku") {
+            if (Shizuku.pingBinder()) Shizuku.requestPermission(2001)
+            else status.text = "Shizuku belum berjalan. Aktifkan Shizuku terlebih dahulu."
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
+        content.addView(actionButton("Aktifkan kontrol tombol volume") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
+        content.addView(actionButton("Mulai pemantauan audio") {
+            ContextCompat.startForegroundService(this, Intent(this, AudioMonitorService::class.java))
+            status.text = "Pemantauan audio sedang berjalan."
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(20) })
+
+        content.addView(TextView(this).apply {
+            text = "Aplikasi mixer"
             textSize = 19f
-            setPadding(0, 22, 0, 8)
-            setTextColor(0xFF202124.toInt())
+            setTextColor(0xFF24232A.toInt())
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, dp(4), 0, dp(10))
         })
         appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(appList)
         scroll.addView(content)
         setContentView(scroll)
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun showAppPicker() {
         if (!RecentApps.hasAccess(this)) {
@@ -168,41 +193,58 @@ class MainActivity : Activity() {
         val chosen = selected()
         if (chosen.isEmpty()) {
             appList.addView(TextView(this).apply {
-                text = "Belum ada aplikasi dipilih."
-                textSize = 14f
-                setPadding(0, 8, 0, 12)
+                text = "Belum ada aplikasi. Tambahkan dari daftar aplikasi terbaru."
+                textSize = 13f
+                setTextColor(0xFF77737F.toInt())
+                setPadding(dp(14), dp(18), dp(14), dp(18))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFFFFFFF.toInt()); cornerRadius = dp(16).toFloat()
+                }
             })
             return
         }
         chosen.sorted().forEach { pkg ->
-            val label = try {
-                val info = packageManager.getApplicationInfo(pkg, 0)
-                packageManager.getApplicationLabel(info).toString()
-            } catch (_: Exception) { pkg }
-            val row = LinearLayout(this).apply {
+            val info = try { packageManager.getApplicationInfo(pkg, 0) } catch (_: Exception) { null }
+            val label = if (info != null) packageManager.getApplicationLabel(info).toString() else pkg
+            val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 10, 0, 12)
+                setPadding(dp(14), dp(12), dp(14), dp(10))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFFFFFFF.toInt()); cornerRadius = dp(16).toFloat()
+                }
             }
-            val heading = TextView(this).apply {
-                text = "$label  •  ${volume(pkg)}%"
-                textSize = 16f
-                setTextColor(0xFF202124.toInt())
-            }
+            val top = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+            top.addView(android.widget.ImageView(this).apply {
+                setImageDrawable(if (info != null) packageManager.getApplicationIcon(info) else getDrawable(android.R.drawable.sym_def_app_icon))
+            }, LinearLayout.LayoutParams(dp(38), dp(38)))
+            top.addView(TextView(this).apply {
+                text = label
+                textSize = 15f
+                setTextColor(0xFF292631.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(dp(12), 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            top.addView(TextView(this).apply {
+                text = "${volume(pkg)}%"
+                textSize = 14f
+                setTextColor(0xFF705BBE.toInt())
+                tag = "volume_value"
+            })
+            card.addView(top)
             val slider = SeekBar(this).apply {
                 max = 100
                 progress = volume(pkg)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
-                        heading.text = "$label  •  $value%"
+                        top.findViewWithTag<TextView>("volume_value")?.text = "$value%"
                         if (fromUser) prefs.edit().putInt("volume_$pkg", value).apply()
                     }
                     override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                     override fun onStopTrackingTouch(seekBar: SeekBar?) { applyOne(pkg) }
                 })
             }
-            row.addView(heading)
-            row.addView(slider)
-            appList.addView(row)
+            card.addView(slider)
+            appList.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
         }
     }
 
