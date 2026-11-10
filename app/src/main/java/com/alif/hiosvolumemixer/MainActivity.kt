@@ -147,7 +147,7 @@ class MainActivity : Activity() {
             label.text = "$title: ${seek.progress + min}$suffix"
             panel.addView(seek)
         }
-        addSetting("Tutup otomatis (0 = nonaktif)", "popup_timeout", 0, 30, " dtk", 0)
+        addSetting("Tutup otomatis (0 = nonaktif)", "popup_timeout", 0, 30, " dtk", 5)
         addSetting("Transparansi panel", "popup_opacity", 55, 100, "%", 92)
         addSetting("Buram latar (Android 12+)", "popup_blur", 0, 60, "", 18)
         addSetting("Ketebalan outline", "outline_width", 0, 3, " px", 1)
