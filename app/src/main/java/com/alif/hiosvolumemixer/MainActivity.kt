@@ -49,7 +49,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply { clipToPadding = false; isFillViewport = true }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(26), dp(20), dp(28))
@@ -98,6 +98,8 @@ class MainActivity : Activity() {
         content.addView(actionButton("Aktifkan kontrol tombol volume") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
+        content.addView(actionButton("Pengaturan tampilan & popup") { showSettings() },
+            LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
         content.addView(actionButton("Mulai pemantauan audio") {
             ContextCompat.startForegroundService(this, Intent(this, AudioMonitorService::class.java))
             status.text = "Pemantauan audio sedang berjalan."
@@ -114,6 +116,66 @@ class MainActivity : Activity() {
         content.addView(appList)
         scroll.addView(content)
         setContentView(scroll)
+    }
+
+    private fun showSettings() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        fun addSetting(title: String, key: String, min: Int, max: Int, suffix: String, default: Int) {
+            val label = TextView(this).apply {
+                textSize = 14f
+                setTextColor(0xFF292631.toInt())
+            }
+            panel.addView(label)
+            val seek = SeekBar(this).apply {
+                this.max = max - min
+                progress = (prefs.getInt(key, default).coerceIn(min, max) - min)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                        label.text = "$title: ${value + min}$suffix"
+                    }
+                    override fun onStartTrackingTouch(bar: SeekBar?) {}
+                    override fun onStopTrackingTouch(bar: SeekBar?) {
+                        prefs.edit().putInt(key, bar?.progress?.plus(min) ?: default).apply()
+                    }
+                })
+            }
+            label.text = "$title: ${seek.progress + min}$suffix"
+            panel.addView(seek)
+        }
+        addSetting("Tutup otomatis (0 = nonaktif)", "popup_timeout", 0, 30, " dtk", 0)
+        addSetting("Transparansi panel", "popup_opacity", 55, 100, "%", 92)
+        addSetting("Buram latar (Android 12+)", "popup_blur", 0, 60, "", 18)
+        addSetting("Ketebalan outline", "outline_width", 0, 3, " px", 1)
+        panel.addView(TextView(this).apply {
+            text = "Warna aksen"
+            textSize = 14f
+            setTextColor(0xFF292631.toInt())
+            setPadding(0, dp(12), 0, dp(4))
+        })
+        val colors = listOf(
+            "Ungu" to 0xFF705BBE.toInt(),
+            "Biru" to 0xFF3478D4.toInt(),
+            "Hijau" to 0xFF26856A.toInt(),
+            "Merah muda" to 0xFFB64D83.toInt()
+        )
+        val colorRow = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER }
+        colors.forEach { (name, color) ->
+            val button = Button(this).apply {
+                text = name
+                isAllCaps = false
+                setOnClickListener { prefs.edit().putInt("accent_color", color).apply() }
+            }
+            colorRow.addView(button, LinearLayout.LayoutParams(0, dp(46), 1f))
+        }
+        panel.addView(colorRow)
+        AlertDialog.Builder(this)
+            .setTitle("Pengaturan")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setPositiveButton("Selesai", null)
+            .show()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
