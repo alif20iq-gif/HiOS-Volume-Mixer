@@ -38,17 +38,22 @@ class ShellUserService : IShellService.Stub() {
         config.javaClass.getDeclaredMethod("getIPlayer").apply { isAccessible = true }.invoke(config)
     } catch (_: Throwable) { null }
 
+    private fun packageForConfig(config: Any, ctx: Context): String? {
+        val pid = intField(config, "mClientPid") ?: return null
+        val am = ctx.getSystemService(android.app.ActivityManager::class.java) ?: return null
+        val process = am.runningAppProcesses?.firstOrNull { it.pid == pid } ?: return null
+        return process.pkgList?.firstOrNull()
+    }
+
     override fun getActivePackages(): String {
         val ctx = context() ?: return ""
-        val pm = ctx.packageManager
         return activeConfigurations().mapNotNull { config ->
-            val uid = intField(config, "mClientUid") ?: return@mapNotNull null
-            val pid = intField(config, "mClientPid") ?: -1
             val state = intField(config, "mPlayerState") ?: -1
             if (state != 2 && state != 3) return@mapNotNull null
-            val packageName = pm.getPackagesForUid(uid)?.firstOrNull() ?: return@mapNotNull null
-            "$packageName\t$pid"
-        }.distinct().joinToString("\n")
+            val pkg = packageForConfig(config, ctx) ?: return@mapNotNull null
+            val pid = intField(config, "mClientPid") ?: -1
+            "$pkg\\t$pid"
+        }.distinct().joinToString("\\n")
     }
 
     override fun setPackageVolume(packageName: String, volume: Float): String {
@@ -58,25 +63,34 @@ class ShellUserService : IShellService.Stub() {
         var applied = 0
         val failures = mutableListOf<String>()
         for (config in activeConfigurations()) {
-            val uid = intField(config, "mClientUid") ?: continue
-            if (ctx.packageManager.getPackagesForUid(uid)?.contains(packageName) != true) continue
+            val state = intField(config, "mPlayerState") ?: -1
+            if (state != 2 && state != 3) continue
+            if (packageForConfig(config, ctx) != packageName) continue
             matched++
             try {
-                // PlayerProxy is the framework-supported remote wrapper around IPlayer.
-                val proxyMethod = config.javaClass.getDeclaredMethod("getPlayerProxy").apply { isAccessible = true }
-                val proxy = proxyMethod.invoke(config)
-                if (proxy == null) {
-                    failures.add("no-player-proxy")
+                // Use the framework IPlayer interface directly, as the Android per-player
+                // volume implementation does. PlayerProxy reflection can be blocked on OEM ROMs.
+                val player = config.javaClass.getDeclaredMethod("getIPlayer").apply { isAccessible = true }.invoke(config)
+                if (player == null) {
+                    failures.add("no-player")
                     continue
                 }
-                proxy.javaClass.getMethod("setVolume", Float::class.javaPrimitiveType!!)
-                    .invoke(proxy, normalized)
+                val setVolume = player.javaClass.methods.firstOrNull {
+                    it.name == "setVolume" && it.parameterTypes.contentEquals(arrayOf(Float::class.javaPrimitiveType))
+                } ?: player.javaClass.interfaces.asSequence().flatMap { it.methods.asSequence() }
+                    .firstOrNull { it.name == "setVolume" && it.parameterTypes.size == 1 }
+                if (setVolume == null) {
+                    failures.add("setVolume-unavailable")
+                    continue
+                }
+                setVolume.invoke(player, normalized)
                 applied++
             } catch (e: Throwable) {
-                failures.add(e.cause?.javaClass?.simpleName ?: e.javaClass.simpleName)
+                val cause = e.cause ?: e
+                failures.add(cause.javaClass.simpleName + (cause.message?.let { ":$it" } ?: ""))
             }
         }
         return "matched=$matched;applied=$applied" +
-            if (failures.isEmpty()) "" else ";errors=${failures.distinct().take(3).joinToString(",")}"
+            if (failures.isEmpty()) "" else ";errors=${failures.distinct().take(3).joinToString("|")}"
     }
 }
