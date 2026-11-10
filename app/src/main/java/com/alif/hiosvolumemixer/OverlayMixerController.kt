@@ -84,9 +84,11 @@ class OverlayMixerController(private val service: AccessibilityService) {
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            gravity = Gravity.END or Gravity.TOP
             x = prefs.getInt("popup_x", dp(10)).coerceAtLeast(0)
-            y = prefs.getInt("popup_y", 0).coerceAtLeast(0)
+            val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+            val topInset = if (statusId > 0) service.resources.getDimensionPixelSize(statusId) else dp(24)
+            y = topInset + prefs.getInt("popup_y", dp(110)).coerceAtLeast(0)
             if (android.os.Build.VERSION.SDK_INT >= 31) {
                 val blur = prefs.getInt("popup_blur", 18).coerceIn(0, 60)
                 if (blur > 0) {
@@ -133,7 +135,9 @@ class OverlayMixerController(private val service: AccessibilityService) {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    prefs.edit().putInt("popup_x", params.x).putInt("popup_y", params.y).apply()
+                    val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+                    val topInset = if (statusId > 0) service.resources.getDimensionPixelSize(statusId) else dp(24)
+                    prefs.edit().putInt("popup_x", params.x).putInt("popup_y", (params.y - topInset).coerceAtLeast(0)).apply()
                     true
                 }
                 else -> true
@@ -148,10 +152,10 @@ class OverlayMixerController(private val service: AccessibilityService) {
     private fun header(title: String) = LinearLayout(service).apply {
         gravity = Gravity.CENTER_VERTICAL
         addView(TextView(service).apply {
-            text = title; textSize = 18f; setTextColor(0xFF24232A.toInt())
+            text = "⠿   $title"; textSize = 18f; setTextColor(0xFF24232A.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             tag = "popup_drag_handle"
-            setPadding(dp(4), dp(6), dp(12), dp(6))
+            setPadding(dp(4), dp(10), dp(12), dp(10))
         }, LinearLayout.LayoutParams(0, -2, 1f))
 
     }
