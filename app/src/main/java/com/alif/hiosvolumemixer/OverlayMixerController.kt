@@ -25,6 +25,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
     private val audio = service.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val worker = Executors.newSingleThreadExecutor()
     private var root: View? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
     private val accent get() = prefs.getInt("accent_color", Color.rgb(112, 91, 190))
     private val handler = Handler(Looper.getMainLooper())
     private var systemSlider: VerticalVolumeSlider? = null
@@ -45,12 +46,13 @@ class OverlayMixerController(private val service: AccessibilityService) {
         handler.removeCallbacks(autoHide)
         root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         root = null
+        overlayParams = null
         systemSlider = null
     }
     fun show() { if (root == null) drawMixer() }
     fun destroy() { hide(); worker.shutdownNow() }
 
-    pri    private fun attach(card: LinearLayout) {
+    private fun attach(card: LinearLayout) {
         hide()
         if (android.os.Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(service)) {
             return
@@ -83,7 +85,8 @@ class OverlayMixerController(private val service: AccessibilityService) {
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            x = dp(10)
+            x = prefs.getInt("popup_x", dp(10)).coerceAtLeast(0)
+            y = prefs.getInt("popup_y", 0).coerceAtLeast(0)
             if (android.os.Build.VERSION.SDK_INT >= 31) {
                 val blur = prefs.getInt("popup_blur", 18).coerceIn(0, 60)
                 if (blur > 0) {
@@ -94,13 +97,51 @@ class OverlayMixerController(private val service: AccessibilityService) {
         }
         try {
             wm.addView(card, params)
-            root = card as? FrameLayout
+            root = card
+            overlayParams = params
+            installDragHandle(card, params)
             resetAutoHide()
         } catch (_: Exception) {
             root = null
+            overlayParams = null
         }
     }
-ivate fun panel() = LinearLayout(service).apply {
+
+    private fun installDragHandle(card: LinearLayout, params: WindowManager.LayoutParams) {
+        val handle = card.findViewWithTag<View>("popup_drag_handle") ?: return
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        handle.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downRawX).toInt()
+                    val dy = (event.rawY - downRawY).toInt()
+                    val screen = service.resources.displayMetrics
+                    params.x = (startX - dx).coerceIn(0, (screen.widthPixels - dp(80)).coerceAtLeast(0))
+                    params.y = (startY + dy).toInt().coerceIn(0, (screen.heightPixels - dp(100)).coerceAtLeast(0))
+                    try { wm.updateViewLayout(card, params) } catch (_: Exception) {}
+                    resetAutoHide()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    prefs.edit().putInt("popup_x", params.x).putInt("popup_y", params.y).apply()
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
+    private fun panel() = LinearLayout(service).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
     }
@@ -109,6 +150,8 @@ ivate fun panel() = LinearLayout(service).apply {
         addView(TextView(service).apply {
             text = title; textSize = 18f; setTextColor(0xFF24232A.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            tag = "popup_drag_handle"
+            setPadding(dp(4), dp(6), dp(12), dp(6))
         }, LinearLayout.LayoutParams(0, -2, 1f))
 
     }
