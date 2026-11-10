@@ -97,6 +97,14 @@ class MainActivity : Activity() {
             if (Shizuku.pingBinder()) Shizuku.requestPermission(2001)
             else status.text = "Shizuku belum berjalan. Aktifkan Shizuku terlebih dahulu."
         }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
+        content.addView(actionButton("Izinkan popup di atas aplikasi") {
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")))
+            } else {
+                status.text = "Izin popup sudah aktif."
+            }
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
         content.addView(actionButton("Aktifkan kontrol tombol volume") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(8) })
@@ -173,7 +181,7 @@ class MainActivity : Activity() {
             colorRow.addView(button, LinearLayout.LayoutParams(0, dp(46), 1f))
         }
         panel.addView(colorRow)
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.Theme_HiOSVolumeMixer_SettingsDialog)
             .setTitle("Pengaturan")
             .setView(ScrollView(this).apply { addView(panel) })
             .setPositiveButton("Selesai", null)
