@@ -76,9 +76,9 @@ class ShellUserService : IShellService.Stub() {
                     continue
                 }
                 val setVolume = player.javaClass.methods.firstOrNull {
-                    it.name == "setVolume" && it.parameterTypes.contentEquals(arrayOf(Float::class.javaPrimitiveType))
+                    it.name == "setVolume" && it.parameterTypes.size == 1 && it.parameterTypes[0] == java.lang.Float.TYPE
                 } ?: player.javaClass.interfaces.asSequence().flatMap { it.methods.asSequence() }
-                    .firstOrNull { it.name == "setVolume" && it.parameterTypes.size == 1 }
+                    .firstOrNull { it.name == "setVolume" && it.parameterTypes.size == 1 && it.parameterTypes[0] == java.lang.Float.TYPE }
                 if (setVolume == null) {
                     failures.add("setVolume-unavailable")
                     continue
