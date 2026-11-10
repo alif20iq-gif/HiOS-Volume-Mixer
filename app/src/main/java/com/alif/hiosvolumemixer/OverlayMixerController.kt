@@ -1,82 +1,216 @@
 package com.alif.hiosvolumemixer
+
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import java.util.concurrent.Executors
-class OverlayMixerController(private val s:AccessibilityService){
- private val prefs=s.getSharedPreferences("mixer",Context.MODE_PRIVATE)
- private val wm=s.getSystemService(Context.WINDOW_SERVICE) as WindowManager
- private val audio=s.getSystemService(Context.AUDIO_SERVICE) as AudioManager
- private val worker=Executors.newSingleThreadExecutor()
- private var root:android.view.View?=null
- private fun d(v:Int)=(v*s.resources.displayMetrics.density).toInt()
- private fun panel()=LinearLayout(s).apply{orientation=1;setPadding(d(14),d(14),d(10),d(10));background=GradientDrawable().apply{setColor(Color.rgb(249,248,252));cornerRadius=d(22).toFloat()};elevation=d(12).toFloat()}
- fun hide(){root?.let{try{wm.removeView(it)}catch(_:Exception){}};root=null}
- fun show(){if(root==null)drawMixer()}
- fun destroy(){hide();worker.shutdownNow()}
- private fun attach(v:android.view.View,h:Int=-2){val p=WindowManager.LayoutParams(d(300),h,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,android.graphics.PixelFormat.TRANSLUCENT).apply{gravity=Gravity.RIGHT or Gravity.CENTER_VERTICAL;x=d(8)};try{wm.addView(v,p);root=v}catch(_:Exception){}}
- private fun drawMixer(){
-  val box=panel();val head=LinearLayout(s).apply{gravity=Gravity.CENTER_VERTICAL}
-  head.addView(TextView(s).apply{text="Volume";textSize=18f;setTextColor(Color.DKGRAY)},LinearLayout.LayoutParams(0,-2,1f))
-  head.addView(TextView(s).apply{text="×";textSize=24f;setTextColor(Color.DKGRAY);setOnClickListener{hide()}})
-  box.addView(head)
-  val row=LinearLayout(s).apply{gravity=Gravity.CENTER;setPadding(0,d(12),0,d(8))}
-  row.addView(column(null),LinearLayout.LayoutParams(d(68),d(190)))
-  prefs.getStringSet("selected_apps",emptySet()).orEmpty().take(3).forEach{row.addView(column(it),LinearLayout.LayoutParams(d(68),d(190)))}
-  box.addView(row)
-  box.addView(Button(s).apply{text="+ Tambah aplikasi";isAllCaps=false;setOnClickListener{drawPicker()}},LinearLayout.LayoutParams(-1,d(44)))
-  attach(box)
- }
- private fun column(pkg:String?):android.view.View{
-  val c=LinearLayout(s).apply{orientation=1;gravity=Gravity.CENTER}
-  val maxV=if(pkg==null)audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) else 100
-  val init=if(pkg==null)audio.getStreamVolume(AudioManager.STREAM_MUSIC) else prefs.getInt("volume_"+pkg,100).coerceIn(0,100)
-  val label=TextView(s).apply{text=(init*100/maxV).toString()+"%";textSize=12f;setTextColor(Color.DKGRAY)}
-  c.addView(label)
-  val seek=VSeek(s).apply{max=maxV;progress=init;progressTintList=android.content.res.ColorStateList.valueOf(Color.rgb(100,82,190));thumbTintList=android.content.res.ColorStateList.valueOf(Color.rgb(100,82,190));setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
-   override fun onProgressChanged(b:SeekBar?,v:Int,user:Boolean){if(!user)return;label.text=(v*100/maxV).toString()+"%";if(pkg==null)audio.setStreamVolume(AudioManager.STREAM_MUSIC,v,0)else prefs.edit().putInt("volume_"+pkg,v).apply()}
-   override fun onStartTrackingTouch(b:SeekBar?){}
-   override fun onStopTrackingTouch(b:SeekBar?){if(pkg!=null){val v=progress/100f;worker.execute{AudioSessionDetector.setPackageVolume(s,pkg,v)}}}
-  })}
-  c.addView(seek,LinearLayout.LayoutParams(d(42),d(126)))
-  if(pkg==null)c.addView(TextView(s).apply{text="Sistem";textSize=11f;setTextColor(Color.DKGRAY)}) else{
-   val info=try{s.packageManager.getApplicationInfo(pkg,0)}catch(_:Exception){null}
-   c.addView(ImageView(s).apply{setImageDrawable(if(info!=null)s.packageManager.getApplicationIcon(info)else s.getDrawable(android.R.drawable.sym_def_app_icon))},LinearLayout.LayoutParams(d(26),d(26)))
-   c.addView(TextView(s).apply{text=if(info!=null)s.packageManager.getApplicationLabel(info).toString()else pkg;textSize=10f;setTextColor(Color.DKGRAY);gravity=Gravity.CENTER;maxLines=1})
-  };return c
- }
- private fun drawPicker(){
-  val apps=RecentApps.query(s);val selected=prefs.getStringSet("selected_apps",emptySet()).orEmpty().toMutableSet()
-  val box=panel();box.addView(TextView(s).apply{text="Aplikasi terbaru";textSize=18f;setTextColor(Color.DKGRAY)})
-  box.addView(TextView(s).apply{text="Aplikasi yang baru digunakan";textSize=11f;setTextColor(Color.GRAY)})
-  val scroll=ScrollView(s);val list=LinearLayout(s).apply{orientation=1}
-  if(apps.isEmpty()){
-   list.addView(TextView(s).apply{text=if(RecentApps.hasAccess(s))"Tidak ada aplikasi terbaru." else "Izinkan Akses penggunaan untuk menampilkan aplikasi terbaru.";setTextColor(Color.DKGRAY);setPadding(0,d(16),0,d(16))})
-   if(!RecentApps.hasAccess(s))list.addView(Button(s).apply{text="Buka Akses penggunaan";setOnClickListener{try{s.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))}catch(_:Exception){}}})
-  }
-  apps.forEach{app->
-   val pkg=app.packageName;val r=LinearLayout(s).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(0,d(7),0,d(7))}
-   r.addView(ImageView(s).apply{setImageDrawable(s.packageManager.getApplicationIcon(app))},LinearLayout.LayoutParams(d(34),d(34)))
-   r.addView(TextView(s).apply{text=s.packageManager.getApplicationLabel(app).toString();textSize=14f;setTextColor(Color.DKGRAY);setPadding(d(9),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
-   val tick=TextView(s).apply{text=if(pkg in selected)"✓"else"+";textSize=20f;setTextColor(Color.rgb(100,82,190))}
-   r.addView(tick);r.setOnClickListener{if(!selected.add(pkg))selected.remove(pkg);tick.text=if(pkg in selected)"✓"else"+"};list.addView(r)
-  }
-  scroll.addView(list);box.addView(scroll,LinearLayout.LayoutParams(-1,d(290)))
-  val actions=LinearLayout(s).apply{gravity=Gravity.END}
-  actions.addView(Button(s).apply{text="Kembali";setOnClickListener{drawMixer()}})
-  actions.addView(Button(s).apply{text="Simpan";setOnClickListener{prefs.edit().putStringSet("selected_apps",selected).apply();drawMixer()}})
-  box.addView(actions);hide();attach(box,d(470))
- }
+import kotlin.math.max
+
+class OverlayMixerController(private val service: AccessibilityService) {
+    private val prefs = service.getSharedPreferences("mixer", Context.MODE_PRIVATE)
+    private val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val audio = service.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val worker = Executors.newSingleThreadExecutor()
+    private var root: FrameLayout? = null
+    private val accent = Color.rgb(112, 91, 190)
+    private fun dp(v: Int) = (v * service.resources.displayMetrics.density).toInt()
+    private fun bg(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(24).toFloat() }
+
+    fun hide() {
+        root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        root = null
+    }
+    fun show() { if (root == null) drawMixer() }
+    fun destroy() { hide(); worker.shutdownNow() }
+
+    private fun attach(card: LinearLayout) {
+        hide()
+        val frame = FrameLayout(service).apply { setBackgroundColor(0x55000000); isClickable = true }
+        card.background = bg(0xEDECEFF5.toInt())
+        card.elevation = dp(18).toFloat()
+        frame.addView(card, FrameLayout.LayoutParams(dp(310), -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(10) })
+        frame.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_DOWN &&
+                e.x < service.resources.displayMetrics.widthPixels - dp(320)) {
+                hide()
+                true
+            } else false
+        }
+        val params = WindowManager.LayoutParams(-1, -1,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
+        try { wm.addView(frame, params); root = frame } catch (_: Exception) { root = null }
+    }
+
+    private fun panel() = LinearLayout(service).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+    }
+    private fun header(title: String) = LinearLayout(service).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(TextView(service).apply {
+            text = title; textSize = 18f; setTextColor(0xFF24232A.toInt())
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(TextView(service).apply {
+            text = "×"; textSize = 27f; gravity = Gravity.CENTER
+            setTextColor(0xFF55515F.toInt()); setPadding(dp(8), 0, dp(4), 0)
+            setOnClickListener { hide() }
+        })
+    }
+
+    private fun drawMixer() {
+        val box = panel()
+        box.addView(header("Volume"))
+        box.addView(TextView(service).apply {
+            text = "Geser ke atas atau bawah untuk mengatur volume"
+            textSize = 11f; setTextColor(0xFF77737F.toInt()); setPadding(0, dp(3), 0, dp(10))
+        })
+        val row = LinearLayout(service).apply { gravity = Gravity.CENTER }
+        row.addView(volumeColumn(null), LinearLayout.LayoutParams(dp(76), dp(190)))
+        prefs.getStringSet("selected_apps", emptySet()).orEmpty().take(3).forEach {
+            row.addView(volumeColumn(it), LinearLayout.LayoutParams(dp(76), dp(190)))
+        }
+        box.addView(row)
+        box.addView(TextView(service).apply {
+            text = "+  Tambah aplikasi"; textSize = 14f; gravity = Gravity.CENTER
+            setTextColor(Color.WHITE); background = bg(accent)
+            setPadding(0, dp(11), 0, dp(11)); setOnClickListener { drawPicker() }
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        attach(box)
+    }
+
+    private fun volumeColumn(pkg: String?): View {
+        val col = LinearLayout(service).apply { orientation = 1; gravity = Gravity.CENTER; setPadding(dp(3), dp(4), dp(3), dp(2)) }
+        val maxV = if (pkg == null) audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) else 100
+        val initial = if (pkg == null) audio.getStreamVolume(AudioManager.STREAM_MUSIC) else prefs.getInt("volume_$pkg", 100).coerceIn(0, 100)
+        val label = TextView(service).apply {
+            text = "${initial * 100 / maxV}%"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(0xFF34313C.toInt())
+        }
+        col.addView(label)
+        val slider = VerticalVolumeSlider(service).apply {
+            maxValue = maxV; value = initial; tint = accent
+            onValueChanged = { v ->
+                label.text = "${v * 100 / maxV}%"
+                if (pkg == null) audio.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0)
+                else prefs.edit().putInt("volume_$pkg", v).apply()
+            }
+            onFinished = { v ->
+                if (pkg != null) worker.execute { AudioSessionDetector.setPackageVolume(service, pkg, v / 100f) }
+            }
+        }
+        col.addView(slider, LinearLayout.LayoutParams(dp(48), dp(118)).apply { topMargin = dp(4); bottomMargin = dp(4) })
+        if (pkg == null) {
+            col.addView(TextView(service).apply { text = "Sistem"; textSize = 11f; setTextColor(0xFF625E69.toInt()) })
+        } else {
+            val info = try { service.packageManager.getApplicationInfo(pkg, 0) } catch (_: Exception) { null }
+            col.addView(ImageView(service).apply {
+                setImageDrawable(if (info != null) service.packageManager.getApplicationIcon(info) else service.getDrawable(android.R.drawable.sym_def_app_icon))
+            }, LinearLayout.LayoutParams(dp(27), dp(27)))
+            col.addView(TextView(service).apply {
+                text = if (info != null) service.packageManager.getApplicationLabel(info).toString() else pkg
+                textSize = 10f; setTextColor(0xFF625E69.toInt()); gravity = Gravity.CENTER; maxLines = 1
+            })
+        }
+        return col
+    }
+
+    private fun drawPicker() {
+        val apps = RecentApps.query(service)
+        val selected = prefs.getStringSet("selected_apps", emptySet()).orEmpty().toMutableSet()
+        val box = panel()
+        box.addView(header("Aplikasi terbaru"))
+        box.addView(TextView(service).apply {
+            text = "Pilih aplikasi yang ingin dimasukkan ke mixer"
+            textSize = 11f; setTextColor(0xFF77737F.toInt()); setPadding(0, dp(3), 0, dp(8))
+        })
+        val scroll = ScrollView(service)
+        val list = LinearLayout(service).apply { orientation = 1 }
+        if (apps.isEmpty()) list.addView(TextView(service).apply {
+            text = if (RecentApps.hasAccess(service)) "Belum ada aplikasi terbaru." else "Izinkan Akses penggunaan untuk melihat aplikasi terbaru."
+            setTextColor(0xFF55515F.toInt()); setPadding(0, dp(16), 0, dp(16))
+        })
+        apps.forEach { app ->
+            val pkg = app.packageName
+            val row = LinearLayout(service).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(7), 0, dp(7)) }
+            row.addView(ImageView(service).apply { setImageDrawable(service.packageManager.getApplicationIcon(app)) },
+                LinearLayout.LayoutParams(dp(36), dp(36)))
+            row.addView(TextView(service).apply {
+                text = service.packageManager.getApplicationLabel(app).toString()
+                textSize = 14f; setTextColor(0xFF34313C.toInt()); setPadding(dp(10), 0, dp(4), 0)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            val check = CheckBox(service).apply {
+                buttonTintList = android.content.res.ColorStateList.valueOf(accent)
+                isChecked = pkg in selected
+                setOnCheckedChangeListener { _, checked -> if (checked) selected.add(pkg) else selected.remove(pkg) }
+            }
+            row.addView(check); row.setOnClickListener { check.isChecked = !check.isChecked }; list.addView(row)
+        }
+        scroll.addView(list); box.addView(scroll, LinearLayout.LayoutParams(-1, dp(290)))
+        val actions = LinearLayout(service).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, 0)
+            addView(TextView(service).apply {
+                text = "Batal"; setTextColor(0xFF625E69.toInt()); setPadding(dp(14), dp(10), dp(14), dp(10))
+                setOnClickListener { drawMixer() }
+            })
+            addView(TextView(service).apply {
+                text = "Simpan"; setTextColor(accent); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(dp(14), dp(10), dp(4), dp(10))
+                setOnClickListener { prefs.edit().putStringSet("selected_apps", selected).apply(); drawMixer() }
+            })
+        }
+        box.addView(actions); attach(box)
+    }
 }
-private class VSeek(c:Context):SeekBar(c){
- override fun onMeasure(w:Int,h:Int){super.onMeasure(h,w);setMeasuredDimension(MeasureSpec.getSize(w),MeasureSpec.getSize(h))}
- override fun onDraw(c:android.graphics.Canvas){c.save();c.rotate(-90f);c.translate(-height.toFloat(),0f);super.onDraw(c);c.restore()}
- override fun onTouchEvent(e:android.view.MotionEvent):Boolean{if(!isEnabled)return false;when(e.action){0,2,1->{progress=(max*(1f-e.y/height)).toInt().coerceIn(0,max);if(e.action==1)performClick()};3->return false};return true}
- override fun performClick():Boolean{super.performClick();return true}
+
+private class VerticalVolumeSlider(context: Context) : View(context) {
+    var maxValue = 100
+        set(v) { field = max(1, v); invalidate() }
+    var value = 100
+        set(v) { field = v.coerceIn(0, maxValue); invalidate() }
+    var tint = Color.BLUE
+    var onValueChanged: ((Int) -> Unit)? = null
+    var onFinished: ((Int) -> Unit)? = null
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val density = resources.displayMetrics.density
+    private var dragging = false
+    private fun dp(v: Float) = v * density
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f; val top = dp(9f); val bottom = height - dp(9f); val r = dp(5f)
+        paint.color = 0xFFD6D2DF.toInt()
+        canvas.drawRoundRect(cx-r, top, cx+r, bottom, r, r, paint)
+        val y = bottom - (bottom-top) * value / maxValue
+        paint.color = tint
+        canvas.drawRoundRect(cx-r, y, cx+r, bottom, r, r, paint)
+        canvas.drawCircle(cx, y, dp(10f), paint)
+    }
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { parent?.requestDisallowInterceptTouchEvent(true); dragging = true; update(e.y); return true }
+            MotionEvent.ACTION_MOVE -> { if (dragging) update(e.y); return true }
+            MotionEvent.ACTION_UP -> { if (dragging) { update(e.y); dragging = false; onFinished?.invoke(value); performClick() }; return true }
+            MotionEvent.ACTION_CANCEL -> { dragging = false; return true }
+        }
+        return true
+    }
+    private fun update(y: Float) {
+        val top = dp(9f); val bottom = height - dp(9f)
+        val fraction = (1f - (y-top)/(bottom-top).coerceAtLeast(1f)).coerceIn(0f, 1f)
+        val next = (fraction * maxValue).toInt()
+        if (next != value) { value = next; onValueChanged?.invoke(value); invalidate() }
+    }
+    override fun performClick(): Boolean { super.performClick(); return true }
 }
