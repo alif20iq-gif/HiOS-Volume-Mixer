@@ -35,7 +35,7 @@ class OverlayMixerController(private val service: AccessibilityService) {
     }
     private fun resetAutoHide() {
         handler.removeCallbacks(autoHide)
-        val seconds = prefs.getInt("popup_timeout", 0)
+        val seconds = prefs.getInt("popup_timeout", 5)
         if (seconds > 0 && root != null) handler.postDelayed(autoHide, seconds * 1000L)
     }
     private fun dp(v: Int) = (v * service.resources.displayMetrics.density).toInt()
@@ -60,7 +60,14 @@ class OverlayMixerController(private val service: AccessibilityService) {
             setStroke(dp(prefs.getInt("outline_width", 1).coerceIn(0, 3)), prefs.getInt("outline_color", 0xFFB8B5C2.toInt()))
         }
         card.elevation = dp(18).toFloat()
-        val frame = FrameLayout(service).apply { setBackgroundColor(Color.TRANSPARENT); isClickable = true }
+        val frame = object : FrameLayout(service) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN ||
+                    event.actionMasked == MotionEvent.ACTION_MOVE ||
+                    event.actionMasked == MotionEvent.ACTION_UP) resetAutoHide()
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply { setBackgroundColor(Color.TRANSPARENT); isClickable = true }
         val metrics = service.resources.displayMetrics
         val statusId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
         val navId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
